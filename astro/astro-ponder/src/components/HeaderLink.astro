@@ -1,0 +1,24 @@
+---
+const { href, class: className, ...props } = Astro.props;
+
+const { pathname } = Astro.url;
+
+// note that this shows up in the console in VSCode. This code runs on the SERVER
+console.log(pathname, href);
+// This is a pretty basic check and might fail with more complex URLS, but it's enough to get us started.
+const isActive = href === pathname ;
+---
+
+<a href={href} class:list={[className, { active: isActive }]} {...props}>
+  <slot />
+</a>
+<style>
+  a {
+    display: inline-block;
+    text-decoration: none;
+  }
+  a.active {
+    font-weight: bolder;
+    text-decoration: underline;
+  }
+</style>

@@ -1,0 +1,14 @@
+section {
+  display: grid;
+  grid-template-columns: 200px auto;
+}
+
+h1 {
+  font-size: 2em;
+  color: #1a103a;
+  margin: 30px;
+}
+
+#pokemon-list {
+  list-style: numbered;
+}
