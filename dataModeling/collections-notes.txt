@@ -1,0 +1,327 @@
+WDD 360 - Data Modeling for NoSQL
+Collections: products, users, orders, reviews, alerts
+Shared sub-documents: LineItem, Address
+
+==================================================
+LineItem  (shared sub-document, used in User.cart and Order.items)
+==================================================
+productId:
+    string,
+    required,
+    description: "The Id of the product (matches Product.Id), must not be blank"
+name:
+    string,
+    required,
+    description: "Product name copied at the time it was added, must not be blank"
+image:
+    string,
+    required,
+    description: "Small product image path for displaying in the cart/order"
+color:
+    string,
+    optional,
+    description: "The ColorName chosen by the user, if the product has colors"
+size:
+    string,
+    optional,
+    description: "The size chosen by the user, if the product has sizes"
+quantity:
+    number (integer),
+    required,
+    minimum: 1,
+    description: "How many of this product, must be at least 1"
+price:
+    number,
+    required,
+    minimum: 0,
+    description: "The price of one item (FinalPrice) at the time it was added/ordered"
+
+==================================================
+Address  (shared sub-document, used in User.address and Order.shippingAddress)
+==================================================
+street:
+    string,
+    required,
+    description: "Street address, must not be blank"
+city:
+    string,
+    required,
+    description: "City, must not be blank"
+state:
+    string,
+    required,
+    length: 2,
+    description: "Two-letter state code, e.g. ID"
+zip:
+    string,
+    required,
+    pattern: 5 digits (or 5+4),
+    description: "ZIP code, stored as a string so leading zeros are kept"
+country:
+    string,
+    required,
+    description: "Country, e.g. US"
+
+==================================================
+Product  (based on public/json/backpacks.json)
+==================================================
+_id:
+    string,
+    required,
+    unique,
+    description: "MongoDB identifier, added automatically on import"
+Id:
+    string,
+    required,
+    unique,
+    description: "The store's product code, e.g. 20CXG"
+Category:
+    string,
+    required,
+    enum: ["backpacks", "sleeping-bags", "tents"],
+    description: "The product category used for browsing/filtering"
+IsClearance:
+    boolean,
+    required,
+    description: "True if the product is on clearance"
+IsNew:
+    boolean,
+    required,
+    description: "True if the product is new"
+Url:
+    string,
+    required,
+    description: "Relative URL of the product page"
+Reviews:
+    object,
+    required,
+    description: "Summary of the product's reviews (full reviews live in the reviews collection)"
+    fields:
+        ReviewsUrl: string, required
+        ReviewCount: number (integer), required, minimum 0
+        AverageRating: number, required, minimum 0, maximum 5
+NameWithoutBrand:
+    string,
+    required,
+    description: "Product name without the brand, must not be blank"
+Name:
+    string,
+    required,
+    description: "Full product name including the brand, must not be blank"
+IsFamousBrand:
+    boolean,
+    required
+Images:
+    object,
+    required,
+    description: "Embedded image paths for the product in several sizes"
+    fields:
+        PrimarySmall: string, required
+        PrimaryMedium: string, required
+        PrimaryLarge: string, required
+        PrimaryExtraLarge: string, required
+        ExtraImages: array of { Title: string, Src: string }, optional, may be null when there are none
+SizesAvailable:
+    object,
+    required,
+    description: "Available sizes, may be empty {}"
+Colors:
+    array of objects,
+    required,
+    description: "Color options for the product"
+    fields of each item:
+        ColorCode: string, required
+        ColorName: string, required
+        ColorChipImageSrc: string, required
+        ColorPreviewImageSrc: string, required
+DescriptionHtmlSimple:
+    string,
+    required,
+    description: "Product description, may contain simple HTML"
+SuggestedRetailPrice:
+    number,
+    required,
+    minimum: 0
+Brand:
+    object,
+    required,
+    description: "Embedded brand info"
+    fields:
+        Id: string, required
+        Url: string, required
+        ProductsUrl: string, required
+        LogoSrc: string, optional
+        Name: string, required
+ListPrice:
+    number,
+    required,
+    minimum: 0
+FinalPrice:
+    number,
+    required,
+    minimum: 0,
+    description: "The price the customer actually pays"
+
+==================================================
+User
+==================================================
+_id:
+    string,
+    required,
+    unique
+email:
+    string,
+    required,
+    unique,
+    format: email,
+    description: "Used to log in and to send order confirmations, must be a valid email"
+passwordHash:
+    string,
+    required,
+    description: "Hashed password, never store the plain-text password"
+firstName:
+    string,
+    required,
+    maxLength: 50,
+    description: "User's first name, must not be blank"
+lastName:
+    string,
+    required,
+    maxLength: 50,
+    description: "User's last name, must not be blank"
+address:
+    Address,
+    optional,
+    description: "Default shipping address"
+cart:
+    array of LineItem,
+    required,
+    description: "The user's shopping cart, embedded so it persists across sessions. Empty array [] when the cart is empty"
+createdAt:
+    date,
+    required
+modifiedAt:
+    date,
+    required
+
+==================================================
+Order
+==================================================
+_id:
+    string,
+    required,
+    unique
+orderNumber:
+    string,
+    required,
+    unique,
+    description: "Human-friendly order number shown to the user"
+userId:
+    string,
+    required,
+    description: "The _id of the user who placed the order (link to users)"
+items:
+    array of LineItem,
+    required,
+    minItems: 1,
+    description: "Products ordered, with prices copied at the time of purchase"
+shippingAddress:
+    Address,
+    required,
+    description: "Copy of the address the order ships to"
+subtotal:
+    number,
+    required,
+    minimum: 0
+tax:
+    number,
+    required,
+    minimum: 0
+shipping:
+    number,
+    required,
+    minimum: 0
+orderTotal:
+    number,
+    required,
+    minimum: 0,
+    description: "subtotal + tax + shipping"
+status:
+    string,
+    required,
+    enum: ["pending", "processing", "shipped", "delivered", "cancelled"],
+    description: "The status of the order"
+createdAt:
+    date,
+    required
+modifiedAt:
+    date,
+    required
+
+==================================================
+Review
+==================================================
+_id:
+    string,
+    required,
+    unique
+productId:
+    string,
+    required,
+    description: "The Id of the product being reviewed (link to products)"
+userId:
+    string,
+    required,
+    description: "The _id of the user who wrote the review (link to users)"
+userName:
+    string,
+    required,
+    description: "Display name copied from the user so it can be shown without a lookup"
+rating:
+    number (integer),
+    required,
+    minimum: 1,
+    maximum: 5,
+    description: "Star rating from 1 to 5"
+title:
+    string,
+    optional,
+    maxLength: 100
+comment:
+    string,
+    required,
+    maxLength: 1000,
+    description: "The review text, must not be blank"
+createdAt:
+    date,
+    required
+modifiedAt:
+    date,
+    required
+
+==================================================
+Alert  (given in the assignment)
+==================================================
+_id:
+    string,
+    required
+title:
+    string,
+    required,
+    description: "The title of the alert, must not be blank"
+type:
+    string,
+    required,
+    enum: ["warning", "info", "promotion"],
+    description: "The type of the alert, must be one of: warning, info, promotion"
+status:
+    string,
+    required,
+    enum: ["active", "inactive"],
+    description: "The status of the alert, must be one of: active or inactive"
+createdAt:
+    date,
+    required
+modifiedAt:
+    date,
+    required

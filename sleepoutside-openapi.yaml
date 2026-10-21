@@ -1,0 +1,1045 @@
+openapi: 3.0.3
+info:
+  title: SleepOutside API
+  description: >
+    Data API for the SleepOutside store. Covers reading products, logging in,
+    and managing alerts that are shown to users under certain conditions.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Products
+    description: Product catalog. Public, no login required.
+  - name: Alerts
+    description: Site alerts. Anyone can read them; only admins can create, update or delete them.
+  - name: Users
+    description: Logging in. Other user endpoints are not part of this version of the spec.
+
+paths:
+  /products:
+    get:
+      tags:
+        - Products
+      summary: List and search products
+      description: |
+        Returns a paginated list of products, sorted by Name (A to Z).
+
+        **Searching and filtering**
+        - `q` and `category` are optional. With neither, every product is returned.
+        - When both are sent, a product must match both (they are combined with AND).
+        - Examples: `/products?category=tents` lists every tent;
+          `/products?q=marmot&category=tents` lists only Marmot tents.
+
+        **Paging**
+        - Use `limit` and `offset` to page through results, or just follow the
+          `next` and `previous` URLs in the response.
+        - `count` is always the total number of matching products, not the size of the page.
+        - No matches is not an error: the response is a 200 with `count: 0` and an empty `results` array.
+        - An `offset` past the last result is also not an error: the response is a 200
+          with an empty `results` array, `next: null`, and the real total in `count`.
+      operationId: listProducts
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: >
+            Search string. Case-insensitive partial match against the product's
+            Name, NameWithoutBrand and Brand.Name. For example, q=ajax matches
+            "Marmot Ajax Tent - 3-Person, 3-Season". Leading and trailing spaces
+            are ignored; a q that is empty after trimming returns a 400.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          example: marmot
+        - name: category
+          in: query
+          required: false
+          description: Only return products in this category. Must be one of the listed values (lowercase).
+          schema:
+            $ref: '#/components/schemas/Category'
+          example: tents
+        - name: fields
+          in: query
+          required: false
+          description: >
+            Comma-separated list of product fields to include in each result.
+            For example, fields=Name,FinalPrice returns only Name and FinalPrice
+            for each product. If omitted, all fields are returned. An unknown
+            field name returns a 400.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - _id
+                - Id
+                - Category
+                - IsClearance
+                - IsNew
+                - Url
+                - Reviews
+                - NameWithoutBrand
+                - Name
+                - IsFamousBrand
+                - Images
+                - SizesAvailable
+                - Colors
+                - DescriptionHtmlSimple
+                - SuggestedRetailPrice
+                - Brand
+                - ListPrice
+                - FinalPrice
+          example:
+            - Name
+            - FinalPrice
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+              examples:
+                firstPage:
+                  summary: First page of a search, trimmed with fields
+                  description: GET /products?q=marmot&fields=Id,Name,FinalPrice&limit=2
+                  value:
+                    count: 5
+                    next: http://localhost:3000/products?q=marmot&fields=Id,Name,FinalPrice&limit=2&offset=2
+                    previous: null
+                    results:
+                      - Id: 880RR
+                        Name: Marmot Ajax Tent - 3-Person, 3-Season
+                        FinalPrice: 199.99
+                      - Id: 985RF
+                        Name: Marmot Catalyst 2P Tent
+                        FinalPrice: 154.99
+                noMatches:
+                  summary: Search with no matches
+                  description: GET /products?q=kayak
+                  value:
+                    count: 0
+                    next: null
+                    previous: null
+                    results: []
+                offsetPastEnd:
+                  summary: Offset past the last result
+                  description: GET /products?q=marmot&limit=2&offset=10
+                  value:
+                    count: 5
+                    next: null
+                    previous: http://localhost:3000/products?q=marmot&limit=2&offset=8
+                    results: []
+        '400':
+          description: |
+            One or more query parameters are invalid. Every problem is listed in `details`.
+            Causes:
+            - `category` is not one of backpacks, sleeping-bags, tents, hammocks
+            - `fields` contains a name that is not a product field (names are case-sensitive, e.g. `Name`, not `name`)
+            - `limit` is not a whole number from 1 to 100
+            - `offset` is not a whole number of 0 or more
+            - `q` is empty or longer than 100 characters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                badCategory:
+                  summary: Unknown category
+                  value:
+                    message: Invalid query parameters
+                    details:
+                      - field: category
+                        location: query
+                        issue: "'shoes' is not a valid category. Use one of: backpacks, sleeping-bags, tents, hammocks"
+                badFields:
+                  summary: Unknown field name
+                  value:
+                    message: Invalid query parameters
+                    details:
+                      - field: fields
+                        location: query
+                        issue: "'price' is not a product field. Field names are case-sensitive, e.g. FinalPrice"
+                multipleProblems:
+                  summary: Several bad parameters at once
+                  value:
+                    message: Invalid query parameters
+                    details:
+                      - field: limit
+                        location: query
+                        issue: limit must be a whole number from 1 to 100
+                      - field: offset
+                        location: query
+                        issue: offset must be a whole number of 0 or more
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /products/{id}:
+    get:
+      tags:
+        - Products
+      summary: Get one product
+      description: Returns the product whose store product code (Id) matches the path.
+      operationId: getProductById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The store's product code (the product's Id field, not its MongoDB _id).
+          schema:
+            type: string
+            minLength: 1
+          example: 880RR
+      responses:
+        '200':
+          description: The requested product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '404':
+          description: No product exists with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Product not found
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /alerts:
+    get:
+      tags:
+        - Alerts
+      summary: List alerts
+      description: >
+        Returns a paginated list of alerts. Public, so the front end can show
+        active alerts to shoppers without a login.
+      operationId: listAlerts
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Only return alerts with this status. The storefront would normally pass status=active.
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+          example: active
+        - name: type
+          in: query
+          required: false
+          description: Only return alerts of this type.
+          schema:
+            $ref: '#/components/schemas/AlertType'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: A page of alerts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertList'
+              example:
+                count: 1
+                next: null
+                previous: null
+                results:
+                  - _id: 6710f2a4c3b1e2a9d4f5a6b7
+                    title: Free shipping on orders over $50 this weekend
+                    type: promotion
+                    status: active
+                    createdAt: '2026-10-15T16:00:00Z'
+                    modifiedAt: '2026-10-15T16:00:00Z'
+        '400':
+          $ref: '#/components/responses/AlertListBadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Alerts
+      summary: Create an alert
+      description: Creates a new alert. Requires a logged-in admin.
+      operationId: createAlert
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertInput'
+            example:
+              title: Free shipping on orders over $50 this weekend
+              type: promotion
+              status: active
+      responses:
+        '201':
+          description: The alert was created. The body is the stored alert, including its generated _id and timestamps.
+          headers:
+            Location:
+              description: URL of the new alert.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/AlertBodyBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /alerts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AlertId'
+    get:
+      tags:
+        - Alerts
+      summary: Get one alert
+      description: Returns a single alert. Public.
+      operationId: getAlertById
+      responses:
+        '200':
+          description: The requested alert.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/AlertIdBadRequest'
+        '404':
+          $ref: '#/components/responses/AlertNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Alerts
+      summary: Update an alert
+      description: >
+        Replaces the editable fields of an alert (title, type, status). The server
+        keeps _id and createdAt and sets modifiedAt. Requires a logged-in admin.
+      operationId: updateAlert
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertInput'
+            example:
+              title: Free shipping on orders over $50 this weekend
+              type: promotion
+              status: inactive
+      responses:
+        '200':
+          description: The alert was updated. The body is the alert after the update.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/AlertUpdateBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/AlertNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Alerts
+      summary: Delete an alert
+      description: Permanently deletes an alert. Requires a logged-in admin.
+      operationId: deleteAlert
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: The alert was deleted. No response body.
+        '400':
+          $ref: '#/components/responses/AlertIdBadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/AlertNotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /users/login:
+    post:
+      tags:
+        - Users
+      summary: Log in
+      description: |
+        Checks an email and password and, if they match a user, returns a JSON Web Token (JWT).
+        Send that token as `Authorization: Bearer <token>` on protected endpoints.
+
+        **Why POST:** logging in creates a new token every time, so it is not idempotent,
+        and POST keeps the password in the request body instead of the URL, where it
+        would end up in server logs and browser history. Always call this over HTTPS.
+
+        **Logging out:** the token is stateless, so the client logs out by deleting its
+        stored token. A token stops working when it expires (see `expiresIn`).
+
+        Public: no token is needed to call this endpoint.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: jane.doe@example.com
+              password: correct-horse-battery-staple
+      responses:
+        '200':
+          description: Login succeeded. The body holds the token and the logged-in user's public info.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NzEwZjJhNGMzYjFlMmE5ZDRmNWE2YjgiLCJyb2xlIjoiY3VzdG9tZXIifQ.signature
+                tokenType: Bearer
+                expiresIn: 3600
+                user:
+                  _id: 6710f2a4c3b1e2a9d4f5a6b8
+                  email: jane.doe@example.com
+                  firstName: Jane
+                  lastName: Doe
+        '400':
+          description: |
+            The request body is not a valid login request. Every problem is listed in `details`.
+            Causes:
+            - The body is not valid JSON
+            - `email` or `password` is missing or blank
+            - `email` is not a valid email address
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                missingPassword:
+                  summary: Password left out
+                  value:
+                    message: Invalid login request
+                    details:
+                      - field: password
+                        location: body
+                        issue: password is required and cannot be blank
+                badEmail:
+                  summary: Email is not an email address
+                  value:
+                    message: Invalid login request
+                    details:
+                      - field: email
+                        location: body
+                        issue: "'janedoe' is not a valid email address"
+        '401':
+          description: |
+            The email and password do not match a user. The message is the same whether
+            the email does not exist or the password is wrong, so the API does not reveal
+            which emails have accounts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: Invalid email or password
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JSON Web Token returned by POST /users/login, sent as
+        "Authorization: Bearer <token>". The token's user must be an admin to
+        create, update or delete alerts.
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of results to return in one page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 10
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Number of results to skip before starting the page.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      example: 0
+    AlertId:
+      name: id
+      in: path
+      required: true
+      description: The alert's MongoDB _id (24 hexadecimal characters).
+      schema:
+        type: string
+        pattern: '^[0-9a-fA-F]{24}$'
+      example: 6710f2a4c3b1e2a9d4f5a6b7
+
+  schemas:
+    Category:
+      type: string
+      enum:
+        - backpacks
+        - sleeping-bags
+        - tents
+        - hammocks
+      description: The product category used for browsing and filtering.
+
+    # Every product property, none required at the top level. Used for list
+    # results, where the fields parameter can leave properties out.
+    Product:
+      type: object
+      description: A product. In list results, only the fields requested with the fields parameter are present.
+      properties:
+        _id:
+          type: string
+          description: MongoDB identifier, added automatically on import
+        Id:
+          type: string
+          minLength: 1
+          description: The store's product code, e.g. 20CXG
+        Category:
+          $ref: '#/components/schemas/Category'
+        IsClearance:
+          type: boolean
+          description: True if the product is on clearance
+        IsNew:
+          type: boolean
+          description: True if the product is new
+        Url:
+          type: string
+          description: Relative URL of the product page
+        Reviews:
+          type: object
+          description: Summary of the product's reviews (full reviews live in the reviews collection)
+          required:
+            - ReviewsUrl
+            - ReviewCount
+            - AverageRating
+          properties:
+            ReviewsUrl:
+              type: string
+            ReviewCount:
+              type: integer
+              minimum: 0
+            AverageRating:
+              type: number
+              minimum: 0
+              maximum: 5
+        NameWithoutBrand:
+          type: string
+          minLength: 1
+          description: Product name without the brand, must not be blank
+        Name:
+          type: string
+          minLength: 1
+          description: Full product name including the brand, must not be blank
+        IsFamousBrand:
+          type: boolean
+        Images:
+          type: object
+          description: Image paths for the product in several sizes
+          required:
+            - PrimarySmall
+            - PrimaryMedium
+            - PrimaryLarge
+            - PrimaryExtraLarge
+          properties:
+            PrimarySmall:
+              type: string
+            PrimaryMedium:
+              type: string
+            PrimaryLarge:
+              type: string
+            PrimaryExtraLarge:
+              type: string
+            ExtraImages:
+              type: array
+              nullable: true
+              description: Additional product images, null when there are none
+              items:
+                type: object
+                required:
+                  - Title
+                  - Src
+                properties:
+                  Title:
+                    type: string
+                  Src:
+                    type: string
+        SizesAvailable:
+          type: object
+          description: Available sizes, may be empty {}
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        Colors:
+          type: array
+          description: Color options for the product
+          items:
+            type: object
+            required:
+              - ColorCode
+              - ColorName
+              - ColorChipImageSrc
+              - ColorPreviewImageSrc
+            properties:
+              ColorCode:
+                type: string
+              ColorName:
+                type: string
+              ColorChipImageSrc:
+                type: string
+              ColorPreviewImageSrc:
+                type: string
+        DescriptionHtmlSimple:
+          type: string
+          description: Product description, may contain simple HTML
+        SuggestedRetailPrice:
+          type: number
+          minimum: 0
+        Brand:
+          type: object
+          description: Brand info
+          required:
+            - Id
+            - Url
+            - ProductsUrl
+            - Name
+          properties:
+            Id:
+              type: string
+            Url:
+              type: string
+            ProductsUrl:
+              type: string
+            LogoSrc:
+              type: string
+            Name:
+              type: string
+        ListPrice:
+          type: number
+          minimum: 0
+        FinalPrice:
+          type: number
+          minimum: 0
+          description: The price the customer actually pays
+
+    # A complete product, with the same required fields as the data model.
+    # Returned by GET /products/{id}.
+    ProductDetail:
+      allOf:
+        - $ref: '#/components/schemas/Product'
+        - type: object
+          required:
+            - _id
+            - Id
+            - Category
+            - IsClearance
+            - IsNew
+            - Url
+            - Reviews
+            - NameWithoutBrand
+            - Name
+            - IsFamousBrand
+            - Images
+            - SizesAvailable
+            - Colors
+            - DescriptionHtmlSimple
+            - SuggestedRetailPrice
+            - Brand
+            - ListPrice
+            - FinalPrice
+
+    ProductList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required:
+            - results
+          properties:
+            results:
+              type: array
+              items:
+                $ref: '#/components/schemas/Product'
+
+    AlertType:
+      type: string
+      enum:
+        - warning
+        - info
+        - promotion
+      description: The type of the alert
+
+    AlertStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+      description: Whether the alert is currently shown to users
+
+    Alert:
+      type: object
+      description: An alert shown to users under certain conditions.
+      required:
+        - _id
+        - title
+        - type
+        - status
+        - createdAt
+        - modifiedAt
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for the alert
+        title:
+          type: string
+          minLength: 1
+          description: The title of the alert, must not be blank
+        type:
+          $ref: '#/components/schemas/AlertType'
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+
+    AlertInput:
+      type: object
+      description: The fields a client sends to create or update an alert. The server sets _id, createdAt and modifiedAt.
+      required:
+        - title
+        - type
+        - status
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          minLength: 1
+          description: The title of the alert, must not be blank
+        type:
+          $ref: '#/components/schemas/AlertType'
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+
+    AlertList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required:
+            - results
+          properties:
+            results:
+              type: array
+              items:
+                $ref: '#/components/schemas/Alert'
+
+    PageInfo:
+      type: object
+      description: Pagination wrapper used by every GET request on a collection.
+      required:
+        - count
+        - next
+        - previous
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: Total number of matching results across all pages.
+        next:
+          type: string
+          format: uri
+          nullable: true
+          description: URL of the next page, or null on the last page.
+        previous:
+          type: string
+          format: uri
+          nullable: true
+          description: URL of the previous page, or null on the first page.
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          description: The email the user registered with. Matching is case-insensitive.
+        password:
+          type: string
+          format: password
+          minLength: 1
+          description: The user's plain-text password. The server compares it to the stored passwordHash and never stores or returns it.
+
+    LoginResponse:
+      type: object
+      required:
+        - token
+        - tokenType
+        - expiresIn
+        - user
+      properties:
+        token:
+          type: string
+          description: The JSON Web Token to send in the Authorization header.
+        tokenType:
+          type: string
+          enum:
+            - Bearer
+          description: Always Bearer.
+        expiresIn:
+          type: integer
+          minimum: 1
+          description: Seconds until the token expires. After that, protected endpoints return 401 and the user must log in again.
+        user:
+          $ref: '#/components/schemas/UserPublic'
+
+    UserPublic:
+      type: object
+      description: The parts of a User that are safe to send to the client. passwordHash and cart are never included.
+      required:
+        - _id
+        - email
+        - firstName
+        - lastName
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for the user
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 50
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 50
+
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable summary of the error.
+
+    ValidationError:
+      type: object
+      required:
+        - message
+        - details
+      properties:
+        message:
+          type: string
+          description: Summary of what was wrong with the request.
+        details:
+          type: array
+          description: One entry for each invalid part of the request.
+          items:
+            type: object
+            required:
+              - field
+              - location
+              - issue
+            properties:
+              field:
+                type: string
+                description: Name of the offending parameter or body property.
+              location:
+                type: string
+                enum:
+                  - path
+                  - query
+                  - body
+              issue:
+                type: string
+                description: Why the value was rejected.
+
+  responses:
+    AlertListBadRequest:
+      description: |
+        One or more query parameters are invalid. Every problem is listed in `details`.
+        Causes:
+        - `status` is not active or inactive
+        - `type` is not warning, info or promotion
+        - `limit` is not a whole number from 1 to 100
+        - `offset` is not a whole number of 0 or more
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            message: Invalid query parameters
+            details:
+              - field: status
+                location: query
+                issue: "'live' is not a valid status. Use active or inactive"
+
+    AlertBodyBadRequest:
+      description: |
+        The request body is not a valid alert. Every problem is listed in `details`.
+        Causes:
+        - The body is not valid JSON
+        - `title`, `type` or `status` is missing
+        - `title` is blank
+        - `type` is not warning, info or promotion
+        - `status` is not active or inactive
+        - The body contains a property that clients cannot set (`_id`, `createdAt`, `modifiedAt`, or any unknown name)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            missingAndInvalid:
+              summary: Missing title and invalid type
+              value:
+                message: Invalid alert
+                details:
+                  - field: title
+                    location: body
+                    issue: title is required and cannot be blank
+                  - field: type
+                    location: body
+                    issue: "'urgent' is not a valid type. Use warning, info or promotion"
+            readOnlyField:
+              summary: Client tried to set a server-managed field
+              value:
+                message: Invalid alert
+                details:
+                  - field: createdAt
+                    location: body
+                    issue: createdAt is set by the server and cannot be sent
+            malformedJson:
+              summary: Body is not valid JSON
+              value:
+                message: Request body is not valid JSON
+                details:
+                  - field: body
+                    location: body
+                    issue: Unexpected end of JSON input
+
+    AlertIdBadRequest:
+      description: The `id` in the path is not a valid alert id (it must be 24 hexadecimal characters).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            message: Invalid alert id
+            details:
+              - field: id
+                location: path
+                issue: "'abc123' is not a valid id. Alert ids are 24 hexadecimal characters"
+
+    AlertUpdateBadRequest:
+      description: |
+        The path id or the request body is invalid. Every problem is listed in `details`.
+        Causes are the same as creating an alert, plus an `id` that is not 24 hexadecimal characters.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          example:
+            message: Invalid request
+            details:
+              - field: id
+                location: path
+                issue: "'abc123' is not a valid id. Alert ids are 24 hexadecimal characters"
+              - field: status
+                location: body
+                issue: "'paused' is not a valid status. Use active or inactive"
+
+    Unauthorized:
+      description: |
+        The request has no valid login token. Log in again and send the new token in the
+        `Authorization: Bearer <token>` header. Causes: no `Authorization` header, a malformed
+        token, or an expired token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            missingToken:
+              summary: No token sent
+              value:
+                message: Authentication required. Send a token in the Authorization header
+            expiredToken:
+              summary: Token has expired
+              value:
+                message: Token has expired. Log in again
+            invalidToken:
+              summary: Token is malformed or has a bad signature
+              value:
+                message: Token is invalid
+    Forbidden:
+      description: |
+        The token is valid, but the user is not an admin. Logging in again will not help;
+        the account needs the admin role.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Admin access required to create, update or delete alerts
+    AlertNotFound:
+      description: The id is valid, but no alert with that id exists (it may have been deleted).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Alert not found
+    InternalServerError:
+      description: An unexpected error occurred on the server.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: Internal server error
