@@ -1,6 +1,6 @@
 <script lang="ts">
   import InlineField from "../js/components/InlineField.svelte";
-  import { useInlineEdit } from "../js/components/useInlineEdit.svelte.ts";
+  import { useInlineEdit } from "../js/components/useInlineEdit.svelte";
 
   const user = {
     name: "Jane Doe",
@@ -9,7 +9,7 @@
   };
 
   async function saveProfile(updated: typeof user) {
-    cwait new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     Object.assign(user, updated);
     console.log("Profile saved:", user);
   }
