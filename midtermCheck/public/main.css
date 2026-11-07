@@ -1,0 +1,52 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+#title {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: #c1e47a;
+  border-radius: 8px;
+}
+
+#place-results {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#identification-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.card h3 {
+  margin: 0.5rem 0.75rem 0;
+  font-size: 1rem;
+}
+
+.scientific {
+  margin: 0.25rem 0.75rem 0.75rem;
+  font-style: italic;
+  color: #666;
+}

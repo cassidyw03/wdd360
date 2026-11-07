@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>iNaturalist Search</title>
+  <link rel="stylesheet" href="main.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <h1 id="title">iNaturalist Search</h1>
+
+  <form id="place-form">
+    <label for="place-input">Search for a place</label>
+    <input type="text" id="place-input" required>
+    <button type="submit">Search</button>
+  </form>
+
+  <p id="status"></p>
+
+  <ul id="place-results"></ul>
+
+  <div id="identification-results"></div>
+</body>
+</html>
